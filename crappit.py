@@ -34,13 +34,14 @@ reddit = praw.Reddit(client_id=settings.r_id(), client_secret=settings.r_secret(
 # Function for formatting text from weird reddit standard to HTML
 
 def format_text(text):
-    pattern_link = re.compile(r'\[.*?\]\[.*?\]')  # Pattern to find links
+    pattern_link = re.compile(r'\[.*?\]\[.*?\]')  # Pattern to find links  (weird format)
+    pattern_link_normal = re.compile(r'\[.*?\]\(.*?\)')  # Pattern to find links (classic format)
     pattern_bold = re.compile(r'\*{2}(.*?)\*{2}')  # Pattern to find bold text
     pattern_italics = re.compile(r'\*(.*?)\*')  # Pattern to find italics
 
     formatted_text = ''  # Output
 
-    if pattern_link.search(text):  # If there are links in text that means lowest paragraph has definitions of them
+    if pattern_link.search(text):  # If there are weird links in text that means lowest paragraph has definitions
         link_meaning = {}
         for i in text.split('\n\n')[-1].split('\n'):
             link = i.strip().split(']: ')
@@ -49,17 +50,26 @@ def format_text(text):
             link_meaning[link[0][1:]] = link[1]
         text = text.rsplit('\n\n', maxsplit=1)[0]  # Remove links definitions from actual text
 
-    for i in pattern_link.findall(text):  # Replace in-text links with HTML hyperlinks
+    # Replace all WEIRD in-text links with HTML hyperlinks  [text][link_key]
+    for i in pattern_link.findall(text):
         link = i[1:-1].split('][')
         text = text.replace(i, f'<a href="{link_meaning[link[1]]}">{link[0]}</a>')
 
-    for i in pattern_bold.findall(text):  # Make bold text bold
+    # Replace all NORMAL in-text links with HTML hyperlinks  [text](link)
+    for i in pattern_link_normal.findall(text):
+        link = i[1:-1].split('](')  # Warning. Don't touch this. Might stop working even if you don't change anything.
+        text = text.replace(i, f'<a href="{link[1]}">{link[0]}</a>')
+
+    # Make bold text bold  (**text**)
+    for i in pattern_bold.findall(text):
         text = text.replace(f'**{i}**', f'<b>{i}</b>')
 
-    for i in pattern_italics.findall(text):  # Make italics text italics
+    # Make italics text italics  (*text*)
+    for i in pattern_italics.findall(text):
         text = text.replace(f'*{i}*', f'<i>{i}</i>')
 
-    for line in text.split('\n'):  # Check every line for big text. If it starts with '#' we make it BIG
+    # Make big text big  (#text)
+    for line in text.split('\n'):
         if len(line) != 0 and line[0] == '#':
             formatted_line = f'<span style="font-size: 24px">{line}</span>'
         else:
@@ -76,9 +86,9 @@ def format_text(text):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        uic.loadUi('main_ui.ui', self)  # Load in UI
-
+        uic.loadUi('main_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 1
         self.configure_buttons()  # Tell all buttons what they are supposed to do
+        self.body_text.setOpenExternalLinks(True)  # Make it so the hyperlinks in text work.
 
     def configure_buttons(self):
 
@@ -88,16 +98,16 @@ class MainWindow(QMainWindow):
         self.upvote_btn.clicked.connect(lambda: self.vote_post(True))
         self.downvote_btn.clicked.connect(lambda: self.vote_post(False))
 
-        self.comment_btn.clicked.connect(self.comment_post)  # Connect comment button. It shows window with comments
+        self.comment_btn.clicked.connect(self.comment_post)  # Connect comment button. It shows window with comments.
 
         # Connect buttons for moving between posts. 1 == forward, -1 == backwards.
         self.next_btn.clicked.connect(lambda: self.move_post(1))
         self.previous_btn.clicked.connect(lambda: self.move_post(-1))
 
-        # Connect button for copying link to post. Also this line breaks pep8 by 1 symbol which is annoying.
+        # Connect button for copying link to post. Also this line breaks pep8 by 1 symbol which is annoying. Won't fix.
         self.share_btn.clicked.connect(lambda: pyperclip.copy(str(reddit.submission(self.posts[self.current_post]).url)))
 
-        self.body_text.setOpenExternalLinks(True)  # Make it so the hyperlinks in text work.
+
 
     def refresh_posts(self):
         self.posts = []  # Empty the list with post ids  (or create it if we refresh for the first time)
@@ -166,7 +176,7 @@ class MainWindow(QMainWindow):
 class CommentsWindow(QWidget):
     def __init__(self, post_id):
         super().__init__()
-        uic.loadUi('comments_ui.ui', self)  # Load in UI
+        uic.loadUi('comments_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 2
 
         self.post_id = post_id
         self.show_comments()
@@ -199,7 +209,7 @@ class CommentsWindow(QWidget):
 class MessageWindow(QDialog):  # Class of windows for telling the user (or me) something
     def __init__(self, message, message_explain):
         super().__init__()
-        uic.loadUi('message_ui.ui', self)  # Load in UI
+        uic.loadUi('message_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 3
         self.ok_btn.clicked.connect(lambda: self.hide())  # "Ok" button that just closes window. For convenience.
         self.label.setText(message)  # Big text, message title
         self.label_2.setText(message_explain)  # Smaller text, more info
