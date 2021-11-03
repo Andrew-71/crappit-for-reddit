@@ -104,7 +104,7 @@ def title_on_multiple_lines(title):
     new_title = ' '
     length = 0
     for i in title.split():
-        if length + len(i) > 45:
+        if length + len(i) > 40:
             length = len(i)
             new_title += '\n '
         else:
@@ -119,6 +119,7 @@ def title_on_multiple_lines(title):
 class MainWindow(QMainWindow):
     def __init__(self, login_info):
         super().__init__()
+        self.setFixedSize(530, 700)  # Set fixed size. A sacrifice in order for image scaling to work.
 
         # Honestly, I am making reddit global here because most of code is inherited from when it was global
         # And I am not wasting 10 minutes adding 'self.' to all mentions of this variable.
@@ -163,8 +164,10 @@ class MainWindow(QMainWindow):
         else:
             user_subreddits = list(map(lambda x: x[0], user_subreddits))
         self.posts = []  # Empty the list with post ids  (or create it if we refresh for the first time)
+
         for i in reddit.subreddit('+'.join(user_subreddits)).hot(limit=50):
-            self.posts.append(i.id)
+            if len(i.selftext) != 0 or 'i.redd.it' in i.url:
+                self.posts.append(i.id)
 
         if len(self.posts) > 0:
             self.current_post = 0  # Set current post to 0  (or, once again, create this variable if its first refresh)
@@ -224,7 +227,7 @@ class MainWindow(QMainWindow):
         if len(post.selftext) == 0:
             try:
                 urllib.request.urlretrieve(post.url, "crappit-image-hash.jpg")
-                self.body_text.setText(f'<img src="crappit-image-hash.jpg" alt="Image">')
+                self.body_text.setText(f'<img src="crappit-image-hash.jpg" width = 520 height = 470>')
             except Exception as e:
                 print(e)
         else:
