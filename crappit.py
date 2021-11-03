@@ -1,5 +1,6 @@
 import sys  # Used for... idk?
 import re  # Used for formatting
+import urllib.request
 from PyQt5 import uic  # The thing that makes design load
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QDialog  # All types of windows we use
 import praw  # For communications with Reddit.
@@ -75,7 +76,7 @@ def user_with_link(post):
     return user
 
 
-# Input reddit credentials formatted as (id, username, password, api_id, api_secret),
+# Input is reddit credentials formatted as (id, username, password, api_id, api_secret),
 # returns True if valid else False
 def check_for_credentials(i):
     try:
@@ -98,6 +99,20 @@ def check_for_credentials(i):
         return False  # Yes, I am using try except as an if statement. This is fine.
 
 
+# Input is string, outputs it with '\n' added in some places to fit it in window
+def title_on_multiple_lines(title):
+    new_title = ' '
+    length = 0
+    for i in title.split():
+        if length + len(i) > 45:
+            length = len(i)
+            new_title += '\n '
+        else:
+            length += len(i)
+        new_title += i + ' '
+    return new_title
+
+
 # ==================================================================================================
 # Windows code
 
@@ -113,7 +128,7 @@ class MainWindow(QMainWindow):
         reddit = praw.Reddit(client_id=login_info[3], client_secret=login_info[4],
                              user_agent='"Crappit", unofficial reddit client by u/AndreyRussian1',
                              password=login_info[2], username=login_info[1])
-        self.id = login_info[0]  # Saving id for getting subreddits  TODO: IS THIS CORRECT, ME FROM THE FUTURE????
+        self.user_id = login_info[0]  # Saving id for getting subreddits  TODO: IS THIS CORRECT, ME FROM THE FUTURE????
 
         uic.loadUi('main_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 1
 
@@ -142,19 +157,38 @@ class MainWindow(QMainWindow):
         self.username_text.setOpenExternalLinks(True)  # Enable link to OP's profile
 
     def refresh_posts(self):
+        user_subreddits = cur.execute(f"""SELECT Subreddit_name FROM Subreddits WHERE id = {self.user_id}""").fetchall()
+        if len(user_subreddits) == 0:
+            user_subreddits = ['all']
+        else:
+            user_subreddits = list(map(lambda x: x[0], user_subreddits))
         self.posts = []  # Empty the list with post ids  (or create it if we refresh for the first time)
-        for i in reddit.subreddit('LearnProgramming').hot(limit=50):
+        for i in reddit.subreddit('+'.join(user_subreddits)).hot(limit=50):
             self.posts.append(i.id)
-        self.current_post = 0  # Set current post to 0  (or, once again, create this variable if its first refresh)
-        self.show_post(self.posts[0])  # Show the first post we have in line
-        self.next_btn.setEnabled(True)  # Enable forward button. How else will we get to next post? :)
 
-        # Activate this whole load of buttons that are disabled on startup to avoid errors
-        self.upvote_btn.setEnabled(True)
-        self.downvote_btn.setEnabled(True)
-        self.comment_btn.setEnabled(True)
-        self.share_btn.setEnabled(True)
-        self.report_btn.setEnabled(True)
+        if len(self.posts) > 0:
+            self.current_post = 0  # Set current post to 0  (or, once again, create this variable if its first refresh)
+            self.show_post(self.posts[0])  # Show the first post we have in line
+            self.next_btn.setEnabled(True)  # Enable forward button. How else will we get to next post? :)
+
+            # Activate buttons used to interact with post
+            self.upvote_btn.setEnabled(True)
+            self.downvote_btn.setEnabled(True)
+            self.comment_btn.setEnabled(True)
+            self.share_btn.setEnabled(True)
+            self.report_btn.setEnabled(True)
+        else:
+            self.title_text.setText('No posts found')
+            self.body_text.setText('Wow, such empty!')
+
+            # Deactivate buttons used to interact with post
+            self.upvote_btn.setEnabled(False)
+            self.downvote_btn.setEnabled(False)
+            self.comment_btn.setEnabled(False)
+            self.share_btn.setEnabled(False)
+            self.report_btn.setEnabled(False)
+
+
 
     def vote_post(self, up_or_down):
         try:
@@ -186,10 +220,18 @@ class MainWindow(QMainWindow):
 
     def show_post(self, post_id):
         post = reddit.submission(id=post_id)  # Get id of submission we should show
-        self.body_text.setText(format_text(post.selftext))
+
+        if len(post.selftext) == 0:
+            try:
+                urllib.request.urlretrieve(post.url, "crappit-image-hash.jpg")
+                self.body_text.setText(f'<img src="crappit-image-hash.jpg" alt="Image">')
+            except Exception as e:
+                print(e)
+        else:
+            self.body_text.setText(format_text(post.selftext))
 
         # Show post title. Add a pin if its stickied and '(18+)' if its NSFW.
-        self.title_text.setText(' ' + ('📌 ' if post.stickied else '') + ('(18+) ' if post.over_18 else '') + post.title)
+        self.title_text.setText(title_on_multiple_lines(('📌 ' if post.stickied else '') + ('(18+) ' if post.over_18 else '') + post.title))
 
         self.username_text.setText(user_with_link(post))
 
@@ -210,6 +252,8 @@ class CommentsWindow(QWidget):
         self.post_id = post_id
         self.show_comments()
         self.new_comment_btn.clicked.connect(self.create_comment)
+
+        self.comments_text_window.setOpenExternalLinks(True)
 
     def show_comments(self):
         post = reddit.submission(id=self.post_id)  # Get id of submission we should show
@@ -263,8 +307,22 @@ class LoginWindow(QWidget):
         self.login_btn.clicked.connect(self.open_reddit)
 
     def check_for_accounts(self):
-        con = sqlite3.connect('Settings.db')
-        cur = con.cursor()
+        # Clear all username labels
+        # Because if we deleted a profile
+        # It would still be there
+        self.username_1.setText('EMPTY SLOT')
+        self.username_2.setText('EMPTY SLOT')
+        self.username_3.setText('EMPTY SLOT')
+
+        # Reset buttons for same reason.
+        # First radiobutton is chosen by default. Not perfect but couldn't figure out how to uncheck them all
+        self.radioButton.setEnabled(False)
+        self.radioButton_2.setEnabled(False)
+        self.radioButton_3.setEnabled(False)
+        self.radioButton.setChecked(True)
+        self.radioButton_2.setChecked(False)
+        self.radioButton_3.setChecked(False)
+        self.login_btn.setEnabled(False)
 
         # Delete invalid accounts
         logins = cur.execute("""SELECT * FROM Users""").fetchall()
@@ -299,11 +357,10 @@ class LoginWindow(QWidget):
                     login_exists = True
                     self.login_btn.setEnabled(True)
 
-        con.close()
-
     def edit(self, id_num):
         self.app_edit_window = LoginWindowEdit(id_num)
         self.app_edit_window.show()
+        self.check_for_accounts()
 
     def open_reddit(self):
         if self.radioButton.isChecked():
@@ -313,10 +370,7 @@ class LoginWindow(QWidget):
         else:
             id_num = 3
 
-        con = sqlite3.connect('Settings.db')
-        cur = con.cursor()
         credentials = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
-        con.close()
         self.app_main_window = MainWindow(credentials)
         self.app_main_window.show()
         self.hide()
@@ -330,10 +384,7 @@ class LoginWindowEdit(QWidget):
         self.delete_btn.clicked.connect(self.delete)
         self.id_num = id_num
 
-        con = sqlite3.connect('Settings.db')
-        cur = con.cursor()
         data = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
-        con.close()
         if data is not None:
             self.username.setText(data[1])
             self.password.setText(data[2])
@@ -347,11 +398,8 @@ class LoginWindowEdit(QWidget):
                        str(self.api_id.text()),
                        str(self.api_secret.text()))
         if check_for_credentials(credentials):
-            con = sqlite3.connect('Settings.db')
-            cur = con.cursor()
             cur.execute("""INSERT INTO Users VALUES(?, ?, ?, ?, ?)""", credentials)
             con.commit()
-            con.close()
             login_window.check_for_accounts()
             self.hide()
         else:
@@ -359,12 +407,23 @@ class LoginWindowEdit(QWidget):
             app_login_error.show()
 
     def delete(self):
-        print('delete test')
+        try:
+            cur.execute(f"""DELETE FROM Users WHERE id = {self.id_num}""")
+            con.commit()
+            login_window.check_for_accounts()
+            self.hide()
+        except Exception as e:
+            print(e)
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
 
+    # Connect to the database
+    con = sqlite3.connect('Settings.db')
+    cur = con.cursor()
+
+    # Open login window
     login_window = LoginWindow()
     login_window.show()
 
