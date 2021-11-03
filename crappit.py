@@ -3,35 +3,14 @@ import re  # Used for formatting
 from PyQt5 import uic  # The thing that makes design load
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QDialog  # All types of windows we use
 import praw  # For communications with Reddit.
-import ast  # I have no fucking idea what this does but it somehow makes class 'RedditInfoFile' work
+import prawcore  # For handling Reddit exceptions.
 import pyperclip  # For copying link to post
-
-
-# ==================================================================================================
-# Hides user login information from code
-# TODO: make this spaghetti of a code have login system
-# In fact I should better rewrite this completely...
-
-class RedditInfoFile:
-    def __init__(self, filename):  # Get dict with app info
-        f = open(filename, 'r')
-        self.data = ast.literal_eval(f.read())
-        f.close()
-
-    def r_id(self):  # return app id
-        return self.data['app_id']
-
-    def r_secret(self):  # return app secret
-        return self.data['app_secret']
-
-
-settings = RedditInfoFile('LoginInfo.txt')
-reddit = praw.Reddit(client_id=settings.r_id(), client_secret=settings.r_secret(),
-                     user_agent='Unofficial reddit client by u/AndreyRussian1')
+import sqlite3  # For databases. I hate those things.
 
 
 # ==================================================================================================
 # Function for formatting text from weird reddit standard to HTML
+# String as input, string as output
 
 def format_text(text):
     pattern_link = re.compile(r'\[.*?\]\[.*?\]')  # Pattern to find links  (weird format)
@@ -68,6 +47,9 @@ def format_text(text):
     for i in pattern_italics.findall(text):
         text = text.replace(f'*{i}*', f'<i>{i}</i>')
 
+    # Don't question this totally not suspicious line of code.
+    text = text.replace('Elon', '<a href="https://en.wikipedia.org/wiki/Criticism_of_Tesla,_Inc.">Elon</a>')
+
     # Make big text big  (#text)
     for line in text.split('\n'):
         if len(line) != 0 and line[0] == '#':
@@ -81,14 +63,63 @@ def format_text(text):
 
 
 # ==================================================================================================
-# Main window code
+# Random functions
+
+# Input is id of a post, returns username of OP formatted in link or [DELETED] if account is deleted
+def user_with_link(post):
+    try:
+        user = post.author.name  # Name of author of post
+        user = f'<a href="https://www.reddit.com/user/{user}">u/{user}</a>'  # Clicking on username opens profile
+    except:  # TODO: Put the proper exception here
+        user = 'u/[DELETED]'  # If we get error that means user is deleted
+    return user
+
+
+# Input reddit credentials formatted as (id, username, password, api_id, api_secret),
+# returns True if valid else False
+def check_for_credentials(i):
+    try:
+        # Check for empty elements. If there are then info isn't valid.
+        # This way we avoid calling Reddit for no reason.
+        for j in i:
+            if j == '':
+                raise BaseException
+
+        # Create reddit instance with given login credentials
+        reddit_test = praw.Reddit(client_id=i[3],
+                                  client_secret=i[4],
+                                  user_agent='Test for credentials being valid in "Crappit for reddit" client',
+                                  username=i[1],
+                                  password=i[2])
+        reddit_test.user.me()  # Attempt to get redditor instance of ourself.
+        return True  # If previous line didn't cause an error then info is valid.
+
+    except BaseException or prawcore.ResponseException:
+        return False  # Yes, I am using try except as an if statement. This is fine.
+
+
+# ==================================================================================================
+# Windows code
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, login_info):
         super().__init__()
+
+        # Honestly, I am making reddit global here because most of code is inherited from when it was global
+        # And I am not wasting 10 minutes adding 'self.' to all mentions of this variable.
+        global reddit  # "gLoBal VarIAblE 'ReDdit' iS uNdEfiNed At tHe ModUle lEveL" yeah whatever
+
+        # Create instance of reddit we will use to connect to the API
+        reddit = praw.Reddit(client_id=login_info[3], client_secret=login_info[4],
+                             user_agent='"Crappit", unofficial reddit client by u/AndreyRussian1',
+                             password=login_info[2], username=login_info[1])
+        self.id = login_info[0]  # Saving id for getting subreddits  TODO: IS THIS CORRECT, ME FROM THE FUTURE????
+
         uic.loadUi('main_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 1
+
         self.configure_buttons()  # Tell all buttons what they are supposed to do
-        self.body_text.setOpenExternalLinks(True)  # Make it so the hyperlinks in text work.
+
+        self.refresh_posts()  # Start by refreshing posts
 
     def configure_buttons(self):
 
@@ -107,7 +138,8 @@ class MainWindow(QMainWindow):
         # Connect button for copying link to post. Also this line breaks pep8 by 1 symbol which is annoying. Won't fix.
         self.share_btn.clicked.connect(lambda: pyperclip.copy(str(reddit.submission(self.posts[self.current_post]).url)))
 
-
+        self.body_text.setOpenExternalLinks(True)  # Make it so the hyperlinks in text work.
+        self.username_text.setOpenExternalLinks(True)  # Enable link to OP's profile
 
     def refresh_posts(self):
         self.posts = []  # Empty the list with post ids  (or create it if we refresh for the first time)
@@ -126,11 +158,12 @@ class MainWindow(QMainWindow):
 
     def vote_post(self, up_or_down):
         try:
+            post = reddit.submission(id=self.posts[self.current_post])
             if up_or_down:  # If we wanna upvote
-                self.current_post.upvote()  # Upvote!
+                post.upvote()  # Upvote!
             else:
-                self.current_post.downvote()  # Otherwise downvote!
-        except:
+                post.downvote()  # Otherwise downvote!
+        except:  # TODO: make it proper error handling
             # If we get an error, that means the post is deleted or archived, so we notify the user.
             # Now we COULD check if the post is too old and is archived,
             # but thanks to new stupid archival system that doesn't work. Thanks Reddit very cool.
@@ -158,11 +191,7 @@ class MainWindow(QMainWindow):
         # Show post title. Add a pin if its stickied and '(18+)' if its NSFW.
         self.title_text.setText(' ' + ('📌 ' if post.stickied else '') + ('(18+) ' if post.over_18 else '') + post.title)
 
-        try:
-            user = post.author.name  # Name of author of post
-        except:
-            user = '[DELETED]'  # If we get error that means user is deleted
-        self.username_text.setText(' u/' + user)
+        self.username_text.setText(user_with_link(post))
 
         try:
             score = post.score  # Get score of post
@@ -215,10 +244,128 @@ class MessageWindow(QDialog):  # Class of windows for telling the user (or me) s
         self.label_2.setText(message_explain)  # Smaller text, more info
 
 
+class LoginWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        uic.loadUi('login_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 4
+        self.setFixedSize(470, 350)  # Set size on perfect one.
+
+        # Make links to registration work
+        self.label_register.setOpenExternalLinks(True)
+        self.label_api.setOpenExternalLinks(True)
+
+        self.check_for_accounts()
+
+        self.edit_1.clicked.connect(lambda: self.edit(1))
+        self.edit_2.clicked.connect(lambda: self.edit(2))
+        self.edit_3.clicked.connect(lambda: self.edit(3))
+
+        self.login_btn.clicked.connect(self.open_reddit)
+
+    def check_for_accounts(self):
+        con = sqlite3.connect('Settings.db')
+        cur = con.cursor()
+
+        # Delete invalid accounts
+        logins = cur.execute("""SELECT * FROM Users""").fetchall()
+        for i in logins:
+            if 3 < i[0] or i[0] < 1 or not check_for_credentials(i):
+                cur.execute(f"""DELETE FROM Users WHERE id = {i[0]}""")
+                con.commit()
+
+        # Find accounts
+        logins = cur.execute("""SELECT * FROM Users""").fetchall()
+        login_exists = False
+        for i in logins:
+            if i[0] == 1:
+                self.username_1.setText(i[1])
+                self.radioButton.setEnabled(True)
+                if not login_exists:
+                    self.radioButton.setChecked(True)
+                    login_exists = True
+                    self.login_btn.setEnabled(True)
+            elif i[0] == 2:
+                self.username_2.setText(i[1])
+                self.radioButton_2.setEnabled(True)
+                if not login_exists:
+                    self.radioButton_2.setChecked(True)
+                    login_exists = True
+                    self.login_btn.setEnabled(True)
+            else:
+                self.username_3.setText(i[1])
+                self.radioButton_3.setEnabled(True)
+                if not login_exists:
+                    self.radioButton_3.setChecked(True)
+                    login_exists = True
+                    self.login_btn.setEnabled(True)
+
+        con.close()
+
+    def edit(self, id_num):
+        self.app_edit_window = LoginWindowEdit(id_num)
+        self.app_edit_window.show()
+
+    def open_reddit(self):
+        if self.radioButton.isChecked():
+            id_num = 1
+        elif self.radioButton_2.isChecked():
+            id_num = 2
+        else:
+            id_num = 3
+
+        con = sqlite3.connect('Settings.db')
+        cur = con.cursor()
+        credentials = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
+        con.close()
+        self.app_main_window = MainWindow(credentials)
+        self.app_main_window.show()
+        self.hide()
+
+
+class LoginWindowEdit(QWidget):
+    def __init__(self, id_num):
+        super().__init__()
+        uic.loadUi('login_edit_ui.ui', self)  # Load ui TODO: replace with classes
+        self.save_btn.clicked.connect(self.save)
+        self.delete_btn.clicked.connect(self.delete)
+        self.id_num = id_num
+
+        con = sqlite3.connect('Settings.db')
+        cur = con.cursor()
+        data = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
+        con.close()
+        if data is not None:
+            self.username.setText(data[1])
+            self.password.setText(data[2])
+            self.api_id.setText(data[3])
+            self.api_secret.setText(data[4])
+
+    def save(self):
+        credentials = (self.id_num,
+                       str(self.username.text()),
+                       str(self.password.text()),
+                       str(self.api_id.text()),
+                       str(self.api_secret.text()))
+        if check_for_credentials(credentials):
+            con = sqlite3.connect('Settings.db')
+            cur = con.cursor()
+            cur.execute("""INSERT INTO Users VALUES(?, ?, ?, ?, ?)""", credentials)
+            con.commit()
+            con.close()
+            login_window.check_for_accounts()
+            self.hide()
+        else:
+            app_login_error = MessageWindow('Invalid credentials', 'Please check them and submit again')
+            app_login_error.show()
+
+    def delete(self):
+        print('delete test')
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
 
-    app_main_window = MainWindow()
-    app_main_window.show()
+    login_window = LoginWindow()
+    login_window.show()
 
     sys.exit(app.exec_())
