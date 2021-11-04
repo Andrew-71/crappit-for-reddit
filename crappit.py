@@ -1,11 +1,11 @@
 import sys  # Used for... idk?
-import re  # Used for formatting
-import urllib.request
-from PyQt5 import uic  # The thing that makes design load
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QDialog  # All types of windows we use
+import re  # Used for formatting.
+from PyQt5 import uic  # The thing that makes design load.
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QDialog  # All types of windows we use.
 import praw  # For communications with Reddit.
 import prawcore  # For handling Reddit exceptions.
-import pyperclip  # For copying link to post
+import urllib.request  # Handles download of images for image posts.
+import pyperclip  # For copying link to post.
 import sqlite3  # For databases. I hate those things.
 
 
@@ -71,8 +71,8 @@ def user_with_link(post):
     try:
         user = post.author.name  # Name of author of post
         user = f'<a href="https://www.reddit.com/user/{user}">u/{user}</a>'  # Clicking on username opens profile
-    except:  # TODO: Put the proper exception here
-        user = 'u/[DELETED]'  # If we get error that means user is deleted
+    except prawcore.NotFound:  # User is deleted.
+        user = 'u/[DELETED]'
     return user
 
 
@@ -92,7 +92,7 @@ def check_for_credentials(i):
                                   user_agent='Test for credentials being valid in "Crappit for reddit" client',
                                   username=i[1],
                                   password=i[2])
-        reddit_test.user.me()  # Attempt to get redditor instance of ourself.
+        reddit_test.user.me()  # Attempt to call API and get redditor instance of ourself.
         return True  # If previous line didn't cause an error then info is valid.
 
     except BaseException or prawcore.ResponseException:
@@ -101,16 +101,18 @@ def check_for_credentials(i):
 
 # Input is string, outputs it with '\n' added in some places to fit it in window
 def title_on_multiple_lines(title):
-    new_title = ' '
-    length = 0
+    new_title = ' '  # Output title
+    length = 0  # Length of current line
+
     for i in title.split():
-        if length + len(i) > 40:
-            length = len(i)
-            new_title += '\n '
+        if length + len(i) > 40:  # If new word wouldn't fit on the line
+            length = len(i) + 1  # Change length to new line
+            new_title += '\n '  # Switch to next line
         else:
-            length += len(i)
-        new_title += i + ' '
-    return new_title
+            length += len(i) + 1  # Else increase length
+        new_title += i + ' '  # Add word to current line
+
+    return new_title  # Return new title, now complete with \n (tm)
 
 
 # ==================================================================================================
@@ -129,7 +131,8 @@ class MainWindow(QMainWindow):
         reddit = praw.Reddit(client_id=login_info[3], client_secret=login_info[4],
                              user_agent='"Crappit", unofficial reddit client by u/AndreyRussian1',
                              password=login_info[2], username=login_info[1])
-        self.user_id = login_info[0]  # Saving id for getting subreddits  TODO: IS THIS CORRECT, ME FROM THE FUTURE????
+
+        self.user_id = login_info[0]  # Saving id for getting subreddits
 
         uic.loadUi('main_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 1
 
@@ -145,7 +148,7 @@ class MainWindow(QMainWindow):
         self.upvote_btn.clicked.connect(lambda: self.vote_post(True))
         self.downvote_btn.clicked.connect(lambda: self.vote_post(False))
 
-        self.comment_btn.clicked.connect(self.comment_post)  # Connect comment button. It shows window with comments.
+        self.comment_btn.clicked.connect(self.comments_post)  # Connect comments button. It shows window with comments.
 
         # Connect buttons for moving between posts. 1 == forward, -1 == backwards.
         self.next_btn.clicked.connect(lambda: self.move_post(1))
@@ -158,40 +161,45 @@ class MainWindow(QMainWindow):
         self.username_text.setOpenExternalLinks(True)  # Enable link to OP's profile
 
     def refresh_posts(self):
+        # Get subreddits user is subscribed to
         user_subreddits = cur.execute(f"""SELECT Subreddit_name FROM Subreddits WHERE id = {self.user_id}""").fetchall()
+
+        # If there aren't any default to r/all. Else format them properly.
         if len(user_subreddits) == 0:
             user_subreddits = ['all']
         else:
             user_subreddits = list(map(lambda x: x[0], user_subreddits))
+
         self.posts = []  # Empty the list with post ids  (or create it if we refresh for the first time)
 
         for i in reddit.subreddit('+'.join(user_subreddits)).hot(limit=50):
-            if len(i.selftext) != 0 or 'i.redd.it' in i.url:
+            if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # We only support text posts and officially hosted images
                 self.posts.append(i.id)
 
-        if len(self.posts) > 0:
+        if len(self.posts) > 0:  # If there is at least 1 post
             self.current_post = 0  # Set current post to 0  (or, once again, create this variable if its first refresh)
             self.show_post(self.posts[0])  # Show the first post we have in line
-            self.next_btn.setEnabled(True)  # Enable forward button. How else will we get to next post? :)
 
-            # Activate buttons used to interact with post
-            self.upvote_btn.setEnabled(True)
-            self.downvote_btn.setEnabled(True)
-            self.comment_btn.setEnabled(True)
-            self.share_btn.setEnabled(True)
-            self.report_btn.setEnabled(True)
+            if len(self.posts) > 1:  # If there are 2 or more posts
+                self.next_btn.setEnabled(True)  # Enable forward button. How else will we get to next post? :)
+
+            # Activate buttons used to interact with posts
+            self.toggle_interaction_buttons(True)
+
         else:
-            self.title_text.setText('No posts found')
+            self.title_text.setText('No posts found')  # Tell user there aren't any posts
             self.body_text.setText('Wow, such empty!')
+            self.username_text.setTexr('')
 
-            # Deactivate buttons used to interact with post
-            self.upvote_btn.setEnabled(False)
-            self.downvote_btn.setEnabled(False)
-            self.comment_btn.setEnabled(False)
-            self.share_btn.setEnabled(False)
-            self.report_btn.setEnabled(False)
+            # Deactivate buttons used to interact with posts... because there aren't any
+            self.toggle_interaction_buttons(False)
 
-
+    def toggle_interaction_buttons(self, value):
+        self.upvote_btn.setEnabled(value)
+        self.downvote_btn.setEnabled(value)
+        self.comment_btn.setEnabled(value)
+        self.share_btn.setEnabled(value)
+        self.report_btn.setEnabled(value)
 
     def vote_post(self, up_or_down):
         try:
@@ -200,18 +208,20 @@ class MainWindow(QMainWindow):
                 post.upvote()  # Upvote!
             else:
                 post.downvote()  # Otherwise downvote!
-        except:  # TODO: make it proper error handling
+        except Exception as e:
             # If we get an error, that means the post is deleted or archived, so we notify the user.
             # Now we COULD check if the post is too old and is archived,
             # but thanks to new stupid archival system that doesn't work. Thanks Reddit very cool.
-            app_vote_error = MessageWindow('Unable to vote', 'this means the post is deleted or archived')
+            # TODO: replace with https://www.tutorialspoint.com/pyqt/pyqt_qmessagebox.htm
+            app_vote_error = MessageWindow('Unable to vote', f'Exception: {e}')
             app_vote_error.show()
 
-    def comment_post(self):
+    def comments_post(self):
         try:
             self.comments = CommentsWindow(str(self.posts[self.current_post]))  # Create window with comments
             self.comments.show()
         except Exception as e:
+            # TODO: replace with https://www.tutorialspoint.com/pyqt/pyqt_qmessagebox.htm
             app_comment_error = MessageWindow('Unable to view comments', f'Unexpected error: {e}')
             app_comment_error.show()
 
@@ -247,7 +257,7 @@ class MainWindow(QMainWindow):
         self.score_label.setText(str(score))
 
 
-class CommentsWindow(QWidget):
+class CommentsWindow(QWidget):  # TODO: Fix error "NoneType has no attribute..." but first integrate better messages
     def __init__(self, post_id):
         super().__init__()
         uic.loadUi('comments_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 2
@@ -263,16 +273,13 @@ class CommentsWindow(QWidget):
         comments_text = ''  # This is output text
         post.comments.replace_more(limit=0)  # Remove non-top level comments
         for i in post.comments:
-            try:
-                user = i.author.name  # Name of author of comment
-            except:
-                user = '[DELETED]'  # If we get error that means user is deleted
+            user = user_with_link(i)
             try:
                 body = i.body  # Get body of comment
             except:
                 body = '[REMOVED]'  # If we get error that means comment is removed
 
-            comments_text += f'<p><b>u/{user}</b></p>'  # Show username in bold
+            comments_text += f'<p><b>{user}</b></p>'  # Show username in bold
             comments_text += f'<p>{format_text(body)}</p>'  # Then comment's body
             comments_text += '<br>'  # This is pretty useless but it increases distance between comments and I like that
 
@@ -383,8 +390,8 @@ class LoginWindowEdit(QWidget):
     def __init__(self, id_num):
         super().__init__()
         uic.loadUi('login_edit_ui.ui', self)  # Load ui TODO: replace with classes
-        self.save_btn.clicked.connect(self.save)
-        self.delete_btn.clicked.connect(self.delete)
+        self.save_btn.clicked.connect(self.save)  # Connect Save Button
+        self.delete_btn.clicked.connect(self.delete)  # Connect Delete Button
         self.id_num = id_num
 
         data = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
@@ -406,6 +413,7 @@ class LoginWindowEdit(QWidget):
             login_window.check_for_accounts()
             self.hide()
         else:
+            # TODO: replace with https://www.tutorialspoint.com/pyqt/pyqt_qmessagebox.htm
             app_login_error = MessageWindow('Invalid credentials', 'Please check them and submit again')
             app_login_error.show()
 
