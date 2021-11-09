@@ -1,12 +1,13 @@
 import sys  # Used for... idk?
 import re  # Used for formatting.
-from PyQt5 import uic  # The thing that makes design load.
+from PyQt5 import uic, QtGui  # The thing that makes design load.
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QDialog  # All types of windows we use.
 import praw  # For communications with Reddit.
 import prawcore  # For handling Reddit exceptions.
 import urllib.request  # Handles download of images for image posts.
 import pyperclip  # For copying link to post.
 import sqlite3  # For databases. I hate those things.
+import time  # For displaying time since submission was posted
 
 
 # ==================================================================================================
@@ -71,7 +72,7 @@ def user_with_link(post):
     try:
         user = post.author.name  # Name of author of post
         user = f'<a href="https://www.reddit.com/user/{user}">u/{user}</a>'  # Clicking on username opens profile
-    except prawcore.NotFound:  # User is deleted.
+    except:  # User is deleted. I tried putting specific exception here (prawcore.NotFound) but it doesn't seem to work
         user = 'u/[DELETED]'
     return user
 
@@ -100,19 +101,43 @@ def check_for_credentials(i):
 
 
 # Input is string, outputs it with '\n' added in some places to fit it in window
-def title_on_multiple_lines(title):
-    new_title = ' '  # Output title
+def text_on_multiple_lines(text, line_len):
+    new_text = ' '  # Output title
     length = 0  # Length of current line
 
-    for i in title.split():
-        if length + len(i) > 40:  # If new word wouldn't fit on the line
+    for i in text.split():
+        if length + len(i) > line_len:  # If new word wouldn't fit on the line
             length = len(i) + 1  # Change length to new line
-            new_title += '\n '  # Switch to next line
+            new_text += '\n '  # Switch to next line
         else:
             length += len(i) + 1  # Else increase length
-        new_title += i + ' '  # Add word to current line
+        new_text += i + ' '  # Add word to current line
 
-    return new_title  # Return new title, now complete with \n (tm)
+    return new_text  # Return new title, now complete with \n (tm)
+
+
+# Input is reddit post returns "d h m" type string with time since post was submitted
+def time_since_post(post):
+    time_minutes = round((time.time() - post.created_utc) / 60)  # Get minutes since post was submitted
+
+    if time_minutes == 0:  # If they are 0 pretend its 1 for ease of perception
+        time_minutes = 1
+
+    # Get days
+    return_time = [time_minutes // 1440]
+    time_minutes -= 1440 * return_time[0]
+
+    # Get hours
+    return_time.append(time_minutes // 60)
+    time_minutes -= 60 * return_time[1]
+
+    # Get minutes
+    return_time.append(time_minutes)
+
+    # Return formatted string. If there are no days, hours or minutes then don't show that slot.
+    return f'{(str(return_time[0]) + "d ") if return_time[0] != 0 else ""}' \
+           f'{(str(return_time[1]) + "h ") if return_time[1] != 0 else ""}' \
+           f'{(str(return_time[2]) + "m") if return_time[2] != 0 else ""}'
 
 
 # ==================================================================================================
@@ -121,7 +146,7 @@ def title_on_multiple_lines(title):
 class MainWindow(QMainWindow):
     def __init__(self, login_info):
         super().__init__()
-        self.setFixedSize(530, 700)  # Set fixed size. A sacrifice in order for image scaling to work.
+        self.setFixedSize(530, 750)  # Set fixed size. A sacrifice in order for image scaling to work.
 
         # Honestly, I am making reddit global here because most of code is inherited from when it was global
         # And I am not wasting 10 minutes adding 'self.' to all mentions of this variable.
@@ -221,7 +246,6 @@ class MainWindow(QMainWindow):
             self.comments = CommentsWindow(str(self.posts[self.current_post]))  # Create window with comments
             self.comments.show()
         except Exception as e:
-            # TODO: replace with https://www.tutorialspoint.com/pyqt/pyqt_qmessagebox.htm
             app_comment_error = MessageWindow('Unable to view comments', f'Unexpected error: {e}')
             app_comment_error.show()
 
@@ -244,9 +268,12 @@ class MainWindow(QMainWindow):
             self.body_text.setText(format_text(post.selftext))
 
         # Show post title. Add a pin if its stickied and '(18+)' if its NSFW.
-        self.title_text.setText(title_on_multiple_lines(('📌 ' if post.stickied else '') + ('(18+) ' if post.over_18 else '') + post.title))
+        self.title_text.setText(text_on_multiple_lines((('📌 ' if post.stickied else '') +
+                                                       ('(18+) ' if post.over_18 else '') + post.title), 40))
 
-        self.username_text.setText(user_with_link(post))
+        # Show username of OP. If post is distinguished then it's green.
+        user = user_with_link(post)
+        self.username_text.setText('<p style="color:blue">This is demo content.</p>' if post.distinguished else user)
 
         try:
             score = post.score  # Get score of post
@@ -256,24 +283,34 @@ class MainWindow(QMainWindow):
             score = 'vote'  # If we got an error that means score is hidden so we put 'vote' like on the Reddit website
         self.score_label.setText(str(score))
 
+        self.subreddit_and_time_text.setText(f' r/{str(post.subreddit)} \n Posted {time_since_post(post)} ago')
 
-class CommentsWindow(QWidget):  # TODO: Fix error "NoneType has no attribute..." but first integrate better messages
+
+class CommentsWindow(QWidget):
     def __init__(self, post_id):
         super().__init__()
         uic.loadUi('comments_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 2
 
-        self.post_id = post_id
-        self.show_comments()
-        self.new_comment_btn.clicked.connect(self.create_comment)
+        self.post_id = post_id  # Save id of post we are submitting to
+        self.show_comments()  # Show comments
+        self.new_comment_btn.clicked.connect(self.create_comment)  # Connect button for creating a comment
 
-        self.comments_text_window.setOpenExternalLinks(True)
+        self.comments_text_window.setOpenExternalLinks(True)  # Make links to user profiles and websites work
 
     def show_comments(self):
         post = reddit.submission(id=self.post_id)  # Get id of submission we should show
         comments_text = ''  # This is output text
         post.comments.replace_more(limit=0)  # Remove non-top level comments
         for i in post.comments:
+            # Get username of OP.
+            # If post is distinguished then it has shield next to it.
+            # If it's stickied put pin next to it
             user = user_with_link(i)
+            if i.stickied:
+                user = '📌 ' + user
+            if i.distinguished:
+                user = user + ' 🛡'
+
             try:
                 body = i.body  # Get body of comment
             except:
@@ -286,15 +323,47 @@ class CommentsWindow(QWidget):  # TODO: Fix error "NoneType has no attribute..."
         self.comments_text_window.setText(comments_text)  # Show comments
 
     def create_comment(self):
-        pass
+        try:
+            comment_creator = CommentCreationWindow(self.post_id)
+            comment_creator.show()
+        except Exception as e:
+            print(e)
 
 
-class MessageWindow(QDialog):  # Class of windows for telling the user (or me) something
+class CommentCreationWindow(QWidget):
+    def __init__(self, post_id):
+        super().__init__()
+        uic.loadUi('submit_comment_ui.ui', self)  # Load in UI  TODO: Yep, this also needs to be changed for classes
+        self.submit_btn.clicked.connect(self.submit)  # Connect button for submission
+        self.setFixedSize(350, 300)
+        self.post_id = post_id
+
+    def submit(self):
+        # The post could be deleted or locked, or the user might even be banned
+        # So instead of checking all possibilities we just try to submit
+        try:
+            post = reddit.submission(id=self.post_id)
+            text = self.comment_text.text()
+            post.reply(text)
+        except:
+            app_submit_comment_error = MessageWindow('Unable to submit comment', 'The post might be locked or deleted'
+                                                                                 'Or you might even be banned')
+            app_submit_comment_error.show()
+            self.hide()
+
+
+# Class of windows for telling the user (or me) something.
+# Custom made alternative to QMessageBox because that widget is horrendous looking
+class MessageWindow(QDialog):
     def __init__(self, message, message_explain):
         super().__init__()
         uic.loadUi('message_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 3
         self.ok_btn.clicked.connect(lambda: self.hide())  # "Ok" button that just closes window. For convenience.
+
+        self.setFixedSize(400, 175)  # Set fixed size
+
         self.label.setText(message)  # Big text, message title
+        message_explain = text_on_multiple_lines(message_explain, 45)  # Format message to fit the screen (on 2 lines)
         self.label_2.setText(message_explain)  # Smaller text, more info
 
 
@@ -302,29 +371,29 @@ class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
         uic.loadUi('login_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 4
-        self.setFixedSize(470, 350)  # Set size on perfect one.
+        self.setFixedSize(470, 350)  # Set size to perfect one.
 
-        # Make links to registration work
+        # Make links to registration on Reddit work
         self.label_register.setOpenExternalLinks(True)
         self.label_api.setOpenExternalLinks(True)
 
-        self.check_for_accounts()
+        self.check_for_accounts()  # Check for accounts
 
+        # Connect editing buttons
         self.edit_1.clicked.connect(lambda: self.edit(1))
         self.edit_2.clicked.connect(lambda: self.edit(2))
         self.edit_3.clicked.connect(lambda: self.edit(3))
 
-        self.login_btn.clicked.connect(self.open_reddit)
+        self.login_btn.clicked.connect(self.open_reddit)  # Connect button that opens main window
 
     def check_for_accounts(self):
         # Clear all username labels
-        # Because if we deleted a profile
-        # It would still be there
+        # Because if we just deleted a profile it would still be there
         self.username_1.setText('EMPTY SLOT')
         self.username_2.setText('EMPTY SLOT')
         self.username_3.setText('EMPTY SLOT')
 
-        # Reset buttons for same reason.
+        # Reset buttons and disable them for same reason.
         # First radiobutton is chosen by default. Not perfect but couldn't figure out how to uncheck them all
         self.radioButton.setEnabled(False)
         self.radioButton_2.setEnabled(False)
@@ -334,7 +403,8 @@ class LoginWindow(QWidget):
         self.radioButton_3.setChecked(False)
         self.login_btn.setEnabled(False)
 
-        # Delete invalid accounts
+        # Check for and delete invalid accounts.
+        # Why? Because people are stupid and tend to modify files even when told not to.
         logins = cur.execute("""SELECT * FROM Users""").fetchall()
         for i in logins:
             if 3 < i[0] or i[0] < 1 or not check_for_credentials(i):
@@ -342,9 +412,10 @@ class LoginWindow(QWidget):
                 con.commit()
 
         # Find accounts
-        logins = cur.execute("""SELECT * FROM Users""").fetchall()
-        login_exists = False
+        logins = cur.execute("""SELECT * FROM Users""").fetchall()  # Get all valid accounts
+        login_exists = False  # Assume no accounts exist
         for i in logins:
+            # If account exists in at least 1 slot then we can choose it and login. Oh and also display account name.
             if i[0] == 1:
                 self.username_1.setText(i[1])
                 self.radioButton.setEnabled(True)
@@ -368,11 +439,12 @@ class LoginWindow(QWidget):
                     self.login_btn.setEnabled(True)
 
     def edit(self, id_num):
-        self.app_edit_window = LoginWindowEdit(id_num)
-        self.app_edit_window.show()
-        self.check_for_accounts()
+        self.app_edit_window = LoginWindowEdit(id_num)  # Create edit window
+        self.app_edit_window.show()  # Show it
+        # For more details on editing process check LoginWindowEdit class
 
     def open_reddit(self):
+        # Get account that is currently selected
         if self.radioButton.isChecked():
             id_num = 1
         elif self.radioButton_2.isChecked():
@@ -380,20 +452,22 @@ class LoginWindow(QWidget):
         else:
             id_num = 3
 
-        credentials = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
-        self.app_main_window = MainWindow(credentials)
-        self.app_main_window.show()
-        self.hide()
+        credentials = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()  # Get credentials of it
+        self.app_main_window = MainWindow(credentials)  # Create main window
+        self.app_main_window.show()  # Show it
+        self.hide()  # Hide this one because we're not gonna need it for rest of session
 
 
 class LoginWindowEdit(QWidget):
     def __init__(self, id_num):
         super().__init__()
         uic.loadUi('login_edit_ui.ui', self)  # Load ui TODO: replace with classes
+
         self.save_btn.clicked.connect(self.save)  # Connect Save Button
         self.delete_btn.clicked.connect(self.delete)  # Connect Delete Button
-        self.id_num = id_num
+        self.id_num = id_num  # Save id of which account slot we are editing
 
+        # Check if this slot is already occupied and if it is pre-input current credentials
         data = cur.execute(f"""SELECT * FROM Users WHERE id = {id_num}""").fetchone()
         if data is not None:
             self.username.setText(data[1])
@@ -402,29 +476,28 @@ class LoginWindowEdit(QWidget):
             self.api_secret.setText(data[4])
 
     def save(self):
+        # Get credentials user put into the slots
         credentials = (self.id_num,
                        str(self.username.text()),
                        str(self.password.text()),
                        str(self.api_id.text()),
                        str(self.api_secret.text()))
+
+        # If they are valid save them otherwise tell user to check and try again
         if check_for_credentials(credentials):
-            cur.execute("""INSERT INTO Users VALUES(?, ?, ?, ?, ?)""", credentials)
+            cur.execute("""INSERT INTO Users VALUES(?, ?, ?, ?, ?)""", credentials)  # Put them into the chosen slot
             con.commit()
-            login_window.check_for_accounts()
-            self.hide()
+            login_window.check_for_accounts()  # Refresh accounts to make this one selectable
+            self.hide()  # Exit this window
         else:
-            # TODO: replace with https://www.tutorialspoint.com/pyqt/pyqt_qmessagebox.htm
             app_login_error = MessageWindow('Invalid credentials', 'Please check them and submit again')
             app_login_error.show()
 
     def delete(self):
-        try:
-            cur.execute(f"""DELETE FROM Users WHERE id = {self.id_num}""")
-            con.commit()
-            login_window.check_for_accounts()
-            self.hide()
-        except Exception as e:
-            print(e)
+        cur.execute(f"""DELETE FROM Users WHERE id = {self.id_num}""")  # Empty the slot we were connected to
+        con.commit()
+        login_window.check_for_accounts()  # Refresh accounts to show the change
+        self.hide()  # Exit this window
 
 
 if __name__ == '__main__':
