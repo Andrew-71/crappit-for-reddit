@@ -47,28 +47,28 @@
       <item>
        <widget class="QPushButton" name="settings_btn">
         <property name="text">
-         <string>⚙</string>
+         <string>Options</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="refresh_btn">
         <property name="text">
-         <string>🗘</string>
+         <string>↺</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="multireddit_btn">
+       <widget class="QPushButton" name="subreddit_btn">
         <property name="text">
-         <string>r/</string>
+         <string>Subreddits</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="sorting_btn">
         <property name="text">
-         <string>↑</string>
+         <string>Sorting</string>
         </property>
        </widget>
       </item>
@@ -108,15 +108,20 @@
      </widget>
     </item>
     <item>
-     <layout class="QHBoxLayout" name="horizontalLayout_5">
-      <item>
-       <widget class="QLabel" name="username_text">
-        <property name="text">
-         <string> username</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
+     <widget class="QLabel" name="username_text">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="text">
+       <string> username</string>
+      </property>
+      <property name="textFormat">
+       <enum>Qt::AutoText</enum>
+      </property>
+     </widget>
     </item>
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout_4">
@@ -146,8 +151,8 @@
        <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
 &lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
 p, li { white-space: pre-wrap; }
-&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'MS Shell Dlg 2'; font-size:8pt; font-weight:400; font-style:normal;&quot;&gt;
-&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Click refresh button to view posts&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'Fira Sans Semi-Light'; font-size:10pt; font-weight:400; font-style:normal;&quot;&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; font-family:'MS Shell Dlg 2'; font-size:8pt;&quot;&gt;Click refresh button to view posts&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
       </property>
      </widget>
     </item>
@@ -172,7 +177,7 @@ p, li { white-space: pre-wrap; }
          <bool>false</bool>
         </property>
         <property name="text">
-         <string>🚩</string>
+         <string>Report</string>
         </property>
        </widget>
       </item>
@@ -192,7 +197,7 @@ p, li { white-space: pre-wrap; }
          <bool>false</bool>
         </property>
         <property name="text">
-         <string>💬</string>
+         <string>Comments</string>
         </property>
        </widget>
       </item>

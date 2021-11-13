@@ -71,7 +71,7 @@ def format_text(text):
 def user_with_link(post):
     try:
         user = post.author.name  # Name of author of post
-        user = f'<a href="https://www.reddit.com/user/{user}">u/{user}</a>'  # Clicking on username opens profile
+        user = f' <a href="https://www.reddit.com/user/{user}">u/{user}</a>'  # Clicking on username opens profile
     except:  # User is deleted. I tried putting specific exception here (prawcore.NotFound) but it doesn't seem to work
         user = 'u/[DELETED]'
     return user
@@ -116,7 +116,7 @@ def text_on_multiple_lines(text, line_len):
     return new_text  # Return new title, now complete with \n (tm)
 
 
-# Input is reddit post returns "d h m" type string with time since post was submitted
+# Input is reddit post, returns "d h m" type string with time since post was submitted
 def time_since_post(post):
     time_minutes = round((time.time() - post.created_utc) / 60)  # Get minutes since post was submitted
 
@@ -157,9 +157,17 @@ class MainWindow(QMainWindow):
                              user_agent='"Crappit", unofficial reddit client by u/AndreyRussian1',
                              password=login_info[2], username=login_info[1])
 
-        self.user_id = login_info[0]  # Saving id for getting subreddits
+        self.user_id = login_info[0]  # Saving id for getting subreddits and other stuff (tm)
 
         uic.loadUi('main_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 1
+
+        # Get sorting method
+        self.sorting_method = [cur.execute(f"""SELECT sort FROM Sorting WHERE id = {self.user_id}""").fetchone()[0]]
+
+        # If above ^^^ is top or controversial then a timeframe comes with it
+        if self.sorting_method[0] in {'top', 'controversial'}:
+            self.sorting_method.append(cur.execute(f"""SELECT sort_time FROM Sorting 
+            WHERE id = {self.user_id}""").fetchone()[0])
 
         self.configure_buttons()  # Tell all buttons what they are supposed to do
 
@@ -185,9 +193,15 @@ class MainWindow(QMainWindow):
         self.body_text.setOpenExternalLinks(True)  # Make it so the hyperlinks in text work.
         self.username_text.setOpenExternalLinks(True)  # Enable link to OP's profile
 
+        self.sorting_btn.clicked.connect(self.sort_selection)
+
+        self.subreddit_btn.clicked.connect(self.subreddit_select)
+
     def refresh_posts(self):
         # Get subreddits user is subscribed to
         user_subreddits = cur.execute(f"""SELECT Subreddit_name FROM Subreddits WHERE id = {self.user_id}""").fetchall()
+
+        self.update_sort()
 
         # If there aren't any default to r/all. Else format them properly.
         if len(user_subreddits) == 0:
@@ -197,9 +211,29 @@ class MainWindow(QMainWindow):
 
         self.posts = []  # Empty the list with post ids  (or create it if we refresh for the first time)
 
-        for i in reddit.subreddit('+'.join(user_subreddits)).hot(limit=50):
-            if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # We only support text posts and officially hosted images
-                self.posts.append(i.id)
+        # Yes. This is, in fact, most efficient method.
+        # Because Reddit doesn't let you parse through posts with sorting as a parameter
+        # So we need to call different methods
+        if self.sorting_method[0] == 'hot':
+            for i in reddit.subreddit('+'.join(user_subreddits)).hot(limit=50):
+                if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # Only choose text posts and officially hosted images
+                    self.posts.append(i.id)
+        elif self.sorting_method[0] == 'new':
+            for i in reddit.subreddit('+'.join(user_subreddits)).new(limit=50):
+                if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # Only choose text posts and officially hosted images
+                    self.posts.append(i.id)
+        elif self.sorting_method[0] == 'rising':
+            for i in reddit.subreddit('+'.join(user_subreddits)).rising(limit=50):
+                if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # Only choose text posts and officially hosted images
+                    self.posts.append(i.id)
+        elif self.sorting_method[0] == 'top':
+            for i in reddit.subreddit('+'.join(user_subreddits)).top(self.sorting_method[1], limit=50):
+                if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # Only choose text posts and officially hosted images
+                    self.posts.append(i.id)
+        elif self.sorting_method[0] == 'controversial':
+            for i in reddit.subreddit('+'.join(user_subreddits)).controversial(self.sorting_method[1], limit=50):
+                if len(i.selftext) != 0 or 'i.redd.it' in i.url:  # Only choose text posts and officially hosted images
+                    self.posts.append(i.id)
 
         if len(self.posts) > 0:  # If there is at least 1 post
             self.current_post = 0  # Set current post to 0  (or, once again, create this variable if its first refresh)
@@ -237,7 +271,6 @@ class MainWindow(QMainWindow):
             # If we get an error, that means the post is deleted or archived, so we notify the user.
             # Now we COULD check if the post is too old and is archived,
             # but thanks to new stupid archival system that doesn't work. Thanks Reddit very cool.
-            # TODO: replace with https://www.tutorialspoint.com/pyqt/pyqt_qmessagebox.htm
             app_vote_error = MessageWindow('Unable to vote', f'Exception: {e}')
             app_vote_error.show()
 
@@ -259,11 +292,8 @@ class MainWindow(QMainWindow):
         post = reddit.submission(id=post_id)  # Get id of submission we should show
 
         if len(post.selftext) == 0:
-            try:
-                urllib.request.urlretrieve(post.url, "crappit-image-hash.jpg")
-                self.body_text.setText(f'<img src="crappit-image-hash.jpg" width = 520 height = 470>')
-            except Exception as e:
-                print(e)
+            urllib.request.urlretrieve(post.url, "crappit-image-hash.jpg")
+            self.body_text.setText(f'<img src="crappit-image-hash.jpg" width = 520 height = 470>')
         else:
             self.body_text.setText(format_text(post.selftext))
 
@@ -271,9 +301,9 @@ class MainWindow(QMainWindow):
         self.title_text.setText(text_on_multiple_lines((('📌 ' if post.stickied else '') +
                                                        ('(18+) ' if post.over_18 else '') + post.title), 40))
 
-        # Show username of OP. If post is distinguished then it's green.
+        # Show username of OP. If post is distinguished then it's has shield.
         user = user_with_link(post)
-        self.username_text.setText('<p style="color:blue">This is demo content.</p>' if post.distinguished else user)
+        self.username_text.setText(f'{user} {"🛡" if post.distinguished else ""}')
 
         try:
             score = post.score  # Get score of post
@@ -285,11 +315,91 @@ class MainWindow(QMainWindow):
 
         self.subreddit_and_time_text.setText(f' r/{str(post.subreddit)} \n Posted {time_since_post(post)} ago')
 
+    def sort_selection(self):
+        self.sort_window = SortingSelectWindow(self.user_id)
+        self.sort_window.show()
+
+    def update_sort(self):
+        # Get sorting method
+        self.sorting_method = [cur.execute(f"""SELECT sort FROM Sorting WHERE id = {self.user_id}""").fetchone()[0]]
+
+        # If above ^^^ is top or controversial then a timeframe comes with it
+        if self.sorting_method[0] in {'top', 'controversial'}:
+            self.sorting_method.append(cur.execute(f"""SELECT sort_time FROM Sorting 
+            WHERE id = {self.user_id}""").fetchone()[0])
+
+    def subreddit_select(self):
+        self.subreddit_select_window = SubredditSelectWindow(self.user_id)
+        self.subreddit_select_window.show()
+
+
+#  This window doesn't use the most efficient methods of working,
+#  However it is fine as it deals with simple things and will likely be rarely used.
+#  You know what, just don't touch below code. It's fine as it is.
+class SortingSelectWindow(QWidget):
+    def __init__(self, id_num):
+        super().__init__()
+        uic.loadUi('sorting_select_ui.ui', self)  # TODO: REPLACE WITH CLASSES DUMBASS
+        self.id_num = id_num
+        self.save_btn.clicked.connect(self.save)
+
+        # Find currently selected sorting method
+        current = cur.execute(f"""SELECT * FROM Sorting WHERE id = {id_num}""").fetchone()[1:]
+        if current[0] == 'hot':
+            self.hot.setChecked(True)
+        elif current[0] == 'new':
+            self.new_sort.setChecked(True)
+        elif current[0] == 'rising':
+            self.rising.setChecked(True)
+        elif current[0] == 'top':
+            if current[1] == 'week':
+                self.t_week.setChecked(True)
+            elif current[1] == 'year':
+                self.t_year.setChecked(True)
+            else:
+                self.t_all.setChecked(True)
+        else:
+            if current[1] == 'week':
+                self.c_week.setChecked(True)
+            else:
+                self.c_all.setChecked(True)
+
+    def save(self):
+        if self.hot.isChecked():
+            out = (self.id_num, 'hot', 'no time')
+
+        elif self.new_sort.isChecked():
+            out = (self.id_num, 'new', 'no time')
+
+        elif self.rising.isChecked():
+            out = (self.id_num, 'rising', 'no time')
+
+        elif self.t_week.isChecked():
+            out = (self.id_num, 'top', 'week')
+
+        elif self.t_year.isChecked():
+            out = (self.id_num, 'top', 'year')
+
+        elif self.t_all.isChecked():
+            out = (self.id_num, 'top', 'all')
+
+        elif self.c_week.isChecked():
+            out = (self.id_num, 'controversial', 'week')
+
+        else:
+            out = (self.id_num, 'controversial', 'all')
+
+        cur.execute("""REPLACE INTO Sorting VALUES (?, ?, ?)""", out)
+        con.commit()
+        login_window.app_main_window.refresh_posts()  # Refresh main window with new sorting (or old one)
+        self.hide()
+
 
 class CommentsWindow(QWidget):
     def __init__(self, post_id):
         super().__init__()
         uic.loadUi('comments_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 2
+        self.setFixedSize(430, 470)
 
         self.post_id = post_id  # Save id of post we are submitting to
         self.show_comments()  # Show comments
@@ -323,11 +433,8 @@ class CommentsWindow(QWidget):
         self.comments_text_window.setText(comments_text)  # Show comments
 
     def create_comment(self):
-        try:
-            comment_creator = CommentCreationWindow(self.post_id)
-            comment_creator.show()
-        except Exception as e:
-            print(e)
+        self.comment_creator = CommentCreationWindow(self.post_id)
+        self.comment_creator.show()
 
 
 class CommentCreationWindow(QWidget):
@@ -335,7 +442,7 @@ class CommentCreationWindow(QWidget):
         super().__init__()
         uic.loadUi('submit_comment_ui.ui', self)  # Load in UI  TODO: Yep, this also needs to be changed for classes
         self.submit_btn.clicked.connect(self.submit)  # Connect button for submission
-        self.setFixedSize(350, 300)
+        self.setFixedSize(350, 530)
         self.post_id = post_id
 
     def submit(self):
@@ -343,11 +450,12 @@ class CommentCreationWindow(QWidget):
         # So instead of checking all possibilities we just try to submit
         try:
             post = reddit.submission(id=self.post_id)
-            text = self.comment_text.text()
+            text = self.comment_text.toPlainText()
             post.reply(text)
+            self.hide()
         except:
             app_submit_comment_error = MessageWindow('Unable to submit comment', 'The post might be locked or deleted'
-                                                                                 'Or you might even be banned')
+                                                                                 '\nOr you might even be banned')
             app_submit_comment_error.show()
             self.hide()
 
@@ -365,6 +473,70 @@ class MessageWindow(QDialog):
         self.label.setText(message)  # Big text, message title
         message_explain = text_on_multiple_lines(message_explain, 45)  # Format message to fit the screen (on 2 lines)
         self.label_2.setText(message_explain)  # Smaller text, more info
+
+
+class SubredditSelectWindow(QWidget):
+    def __init__(self, id_num):
+        super().__init__()
+        uic.loadUi('subreddit_select_ui.ui', self)  # TODO: REPLACE WITH CLASSES DUMBASS
+        self.setFixedSize(450, 630)
+        self.id_num = id_num
+
+        self.subreddits = []
+        self.refresh()
+
+        self.add_btn.clicked.connect(self.add_sub)
+        self.remove_btn.clicked.connect(self.remove_sub)
+        self.done_btn.clicked.connect(self.done)
+
+        self.import_btn.clicked.connect(self.import_subs)
+
+    def add_sub(self):
+        sub_name = str(self.subreddit_name.text())
+        try:
+            if len(sub_name) > 3:
+                if sub_name[:2] == 'r/':
+                    sub_name = sub_name[2:]
+
+                reddit.subreddits.search_by_name(sub_name, exact=True)  # Try accessing subreddit
+
+                if len(cur.execute(f"""SELECT * FROM Subreddits WHERE id = {self.id_num}""").fetchall()) > 0:
+                    cur.execute("""INSERT INTO Subreddits VALUES (?, ?)""", (self.id_num, sub_name))
+                    con.commit()
+                    self.refresh()
+
+            else:
+                raise Exception
+        except Exception as e:
+            app_subreddit_add_error = MessageWindow('Unable to add subreddit', 'Please check your spelling')
+            app_subreddit_add_error.show()
+
+    def refresh(self):
+        self.subreddits = sorted(list(map(lambda x: x[0], cur.execute(f"""SELECT Subreddit_name FROM Subreddits 
+                WHERE id = {self.id_num}""").fetchall())))
+        self.sub_list.clear()
+        self.sub_list.addItems(self.subreddits)
+
+    def remove_sub(self):
+        sub_name = str(self.subreddit_name.text())
+        if len(sub_name) > 3 and sub_name[:2] == 'r/':
+            sub_name = sub_name[2:]
+        cur.execute(f"""DELETE FROM Subreddits WHERE id = ? and Subreddit_name = ?""", (self.id_num, str(sub_name)))
+        con.commit()
+        self.refresh()
+
+    def import_subs(self):
+        # Basically a refresh except we use user's subbed subreddits
+        self.subreddits = sorted(list(map(lambda x: x.display_name, list(reddit.user.subreddits(limit=None)))))
+        for i in self.subreddits:
+            cur.execute("""INSERT INTO Subreddits VALUES (?, ?)""", (self.id_num, str(i)))
+            con.commit()
+        self.sub_list.clear()
+        self.sub_list.addItems(self.subreddits)
+
+    def done(self):
+        login_window.app_main_window.refresh_posts()
+        self.hide()
 
 
 class LoginWindow(QWidget):
@@ -404,11 +576,12 @@ class LoginWindow(QWidget):
         self.login_btn.setEnabled(False)
 
         # Check for and delete invalid accounts.
-        # Why? Because people are stupid and tend to modify files even when told not to.
+        # Because accounts tend to get deleted or banned.
         logins = cur.execute("""SELECT * FROM Users""").fetchall()
         for i in logins:
             if 3 < i[0] or i[0] < 1 or not check_for_credentials(i):
                 cur.execute(f"""DELETE FROM Users WHERE id = {i[0]}""")
+                cur.execute(f"""DELETE FROM Sorting WHERE id = {i[0]}""")
                 con.commit()
 
         # Find accounts
@@ -444,6 +617,8 @@ class LoginWindow(QWidget):
         # For more details on editing process check LoginWindowEdit class
 
     def open_reddit(self):
+        self.login_btn.setEnabled(False)  # Solves bug of user sometimes managing to click it twice
+
         # Get account that is currently selected
         if self.radioButton.isChecked():
             id_num = 1
@@ -486,6 +661,7 @@ class LoginWindowEdit(QWidget):
         # If they are valid save them otherwise tell user to check and try again
         if check_for_credentials(credentials):
             cur.execute("""INSERT INTO Users VALUES(?, ?, ?, ?, ?)""", credentials)  # Put them into the chosen slot
+            cur.execute("""INSERT INTO Sorting VALUES(?, ?, ?)""", (credentials[0], 'hot', 'no time'))  # Set sorting
             con.commit()
             login_window.check_for_accounts()  # Refresh accounts to make this one selectable
             self.hide()  # Exit this window
