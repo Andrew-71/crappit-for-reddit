@@ -140,6 +140,16 @@ def time_since_post(post):
            f'{(str(return_time[2]) + "m") if return_time[2] != 0 else ""}'
 
 
+# Input is a post, returns True if upvoted False if downvoted None if neither
+# Homemade and stupid alternative to ".likes" attribute that existed before :(
+def check_vote(post):
+    if post in reddit.user.me().upvoted():
+        return True
+    if post in reddit.user.me().downvoted():
+        return False
+    return None
+
+
 # ==================================================================================================
 # Windows code
 
@@ -265,10 +275,21 @@ class MainWindow(QMainWindow):
     def vote_post(self, up_or_down):
         try:
             post = reddit.submission(id=self.posts[self.current_post])
+            vote = check_vote(post)
             if up_or_down:  # If we wanna upvote
-                post.upvote()  # Upvote!
+                if vote is None:
+                    post.upvote()  # Upvote!
+                    self.colour_button('red')
+                else:
+                    post.clear_vote()
+                    self.colour_button()
             else:
-                post.downvote()  # Otherwise downvote!
+                if vote is None:
+                    post.downvote()  # Otherwise downvote!
+                    self.colour_button('blue')
+                else:
+                    post.clear_vote()
+                    self.colour_button()
         except Exception as e:
             # If we get an error, that means the post is deleted or archived, so we notify the user.
             # Now we COULD check if the post is too old and is archived,
@@ -315,6 +336,14 @@ class MainWindow(QMainWindow):
             score = 'vote'  # If we got an error that means score is hidden so we put 'vote' like on the Reddit website
         self.score_label.setText(str(score))
 
+        vote = check_vote(post)
+        if vote is None:
+            self.colour_button()
+        elif vote:
+            self.colour_button('red')
+        else:
+            self.colour_button('blue')
+
         self.subreddit_and_time_text.setText(f' r/{str(post.subreddit)} \n Posted {time_since_post(post)} ago')
 
     def sort_selection(self):
@@ -337,6 +366,17 @@ class MainWindow(QMainWindow):
     def create_post(self):
         self.post_create_window = SubmitWindow()
         self.post_create_window.show()
+
+    def colour_button(self, colour='white'):
+        if colour == 'blue':
+            self.downvote_btn.setStyleSheet("background-color: blue")
+            self.upvote_btn.setStyleSheet("background-color: white")
+        elif colour == 'red':
+            self.downvote_btn.setStyleSheet("background-color: white")
+            self.upvote_btn.setStyleSheet("background-color: red")
+        else:
+            self.downvote_btn.setStyleSheet("background-color: white")
+            self.upvote_btn.setStyleSheet("background-color: white")
 
 
 class SubmitWindow(QWidget):
@@ -465,7 +505,14 @@ class CommentsWindow(QWidget):
             except:
                 body = '[REMOVED]'  # If we get error that means comment is removed
 
-            comments_text += f'<p><b>{user}</b></p>'  # Show username in bold
+            try:
+                score = i.score  # Get score of post
+                if score > 1000 or score < -1000:  # If its above 1000 or below -1000 round it up to save space
+                    score = f'{score // 1000}k'
+            except:
+                score = 'vote'  # If we got an error that means score is hidden so we put 'vote' like on the website
+
+            comments_text += f'<p><b>{user}</b>\t{score} votes</p>'  # Show username in bold
             comments_text += f'<p>{format_text(body)}</p>'  # Then comment's body
             comments_text += '<br>'  # This is pretty useless but it increases distance between comments and I like that
 
