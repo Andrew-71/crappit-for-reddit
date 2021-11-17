@@ -193,9 +193,11 @@ class MainWindow(QMainWindow):
         self.body_text.setOpenExternalLinks(True)  # Make it so the hyperlinks in text work.
         self.username_text.setOpenExternalLinks(True)  # Enable link to OP's profile
 
+        # Connect buttons for controlling what posts you see
         self.sorting_btn.clicked.connect(self.sort_selection)
-
         self.subreddit_btn.clicked.connect(self.subreddit_select)
+
+        self.submit_btn.clicked.connect(self.create_post)  # Connect post creation button
 
     def refresh_posts(self):
         # Get subreddits user is subscribed to
@@ -332,6 +334,43 @@ class MainWindow(QMainWindow):
         self.subreddit_select_window = SubredditSelectWindow(self.user_id)
         self.subreddit_select_window.show()
 
+    def create_post(self):
+        self.post_create_window = SubmitWindow()
+        self.post_create_window.show()
+
+
+class SubmitWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        uic.loadUi('submit_post_ui.ui', self)  # TODO: REPLACE WITH CLASSES YOU IDIOT SANDWICH
+        self.setFixedSize(530, 480)
+        self.submit_btn.clicked.connect(self.submit)
+
+    def submit(self):
+        sub_name = self.sub_name.text()
+        title = self.post_title.toPlainText()
+        body = self.post_text.toPlainText()
+
+        # Here we are using nested try excepts. Generally a bad practise, but here it's to avoid having PRAW errors
+        # Which are super ambiguous. Like seriously why can't they have normal errors.
+        try:
+            try:
+                if sub_name[:2] == 'r/':
+                    sub_name = sub_name[2:]
+
+                reddit.subreddits.search_by_name(sub_name, exact=True)  # Try accessing subreddit
+            except:
+                raise Exception("Subreddit doesn't exist")
+            try:
+                reddit.validate_on_submit = True  # To make praw shut up.
+                reddit.subreddit(sub_name).submit(title, body)
+                self.hide()
+            except:
+                raise Exception("You are probably banned or subreddit is archived")
+        except Exception as e:
+            app_submit_post_error = MessageWindow("Unable to submit", str(e))
+            app_submit_post_error.show()
+
 
 #  This window doesn't use the most efficient methods of working,
 #  However it is fine as it deals with simple things and will likely be rarely used.
@@ -454,8 +493,7 @@ class CommentCreationWindow(QWidget):
             post.reply(text)
             self.hide()
         except:
-            app_submit_comment_error = MessageWindow('Unable to submit comment', 'The post might be locked or deleted'
-                                                                                 '\nOr you might even be banned')
+            app_submit_comment_error = MessageWindow('Unable to submit comment', 'The post might be locked or deleted'                                                '\nOr you might even be banned')
             app_submit_comment_error.show()
             self.hide()
 
