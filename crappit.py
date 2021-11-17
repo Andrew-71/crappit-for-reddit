@@ -494,20 +494,22 @@ class SubredditSelectWindow(QWidget):
     def add_sub(self):
         sub_name = str(self.subreddit_name.text())
         try:
-            if len(sub_name) > 3:
+            if len(sub_name) >= 3:
                 if sub_name[:2] == 'r/':
                     sub_name = sub_name[2:]
 
                 reddit.subreddits.search_by_name(sub_name, exact=True)  # Try accessing subreddit
 
-                if len(cur.execute(f"""SELECT * FROM Subreddits WHERE id = {self.id_num}""").fetchall()) > 0:
-                    cur.execute("""INSERT INTO Subreddits VALUES (?, ?)""", (self.id_num, sub_name))
+                if len(cur.execute(f"""SELECT * FROM Subreddits WHERE id = ? and Subreddit_name = ?""",
+                                   (self.id_num, sub_name)).fetchall()) < 1:
+                    cur.execute("""INSERT INTO Subreddits VALUES (?, ?)""",
+                                (self.id_num, sub_name.lower().capitalize()))
                     con.commit()
                     self.refresh()
 
             else:
                 raise Exception
-        except Exception as e:
+        except:
             app_subreddit_add_error = MessageWindow('Unable to add subreddit', 'Please check your spelling')
             app_subreddit_add_error.show()
 
