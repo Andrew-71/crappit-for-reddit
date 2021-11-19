@@ -1,6 +1,5 @@
 import sys  # Used for... idk?
 import re  # Used for formatting.
-from PyQt5 import uic, QtGui  # The thing that makes design load.
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QDialog  # All types of windows we use.
 import praw  # For communications with Reddit.
 import prawcore  # For handling Reddit exceptions.
@@ -8,6 +7,8 @@ import urllib.request  # Handles download of images for image posts.
 import pyperclip  # For copying link to post.
 import sqlite3  # For databases. I hate those things.
 import time  # For displaying time since submission was posted
+
+import app_ui
 
 
 # ==================================================================================================
@@ -153,9 +154,10 @@ def check_vote(post):
 # ==================================================================================================
 # Windows code
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow, app_ui.MainUi):
     def __init__(self, login_info):
         super().__init__()
+        self.setupUi(self)
         self.setFixedSize(530, 750)  # Set fixed size. A sacrifice in order for image scaling to work.
 
         # Honestly, I am making reddit global here because most of code is inherited from when it was global
@@ -168,8 +170,6 @@ class MainWindow(QMainWindow):
                              password=login_info[2], username=login_info[1])
 
         self.user_id = login_info[0]  # Saving id for getting subreddits and other stuff (tm)
-
-        uic.loadUi('main_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 1
 
         # Get sorting method
         self.sorting_method = [cur.execute(f"""SELECT sort FROM Sorting WHERE id = {self.user_id}""").fetchone()[0]]
@@ -379,10 +379,10 @@ class MainWindow(QMainWindow):
             self.upvote_btn.setStyleSheet("background-color: white")
 
 
-class SubmitWindow(QWidget):
+class SubmitWindow(QWidget, app_ui.SubmitPostUi):
     def __init__(self):
         super().__init__()
-        uic.loadUi('submit_post_ui.ui', self)  # TODO: REPLACE WITH CLASSES YOU IDIOT SANDWICH
+        self.setupUi(self)
         self.setFixedSize(530, 480)
         self.submit_btn.clicked.connect(self.submit)
 
@@ -415,10 +415,10 @@ class SubmitWindow(QWidget):
 #  This window doesn't use the most efficient methods of working,
 #  However it is fine as it deals with simple things and will likely be rarely used.
 #  You know what, just don't touch below code. It's fine as it is.
-class SortingSelectWindow(QWidget):
+class SortingSelectWindow(QWidget, app_ui.SortingSelectUi):
     def __init__(self, id_num):
         super().__init__()
-        uic.loadUi('sorting_select_ui.ui', self)  # TODO: REPLACE WITH CLASSES DUMBASS
+        self.setupUi(self)
         self.id_num = id_num
         self.save_btn.clicked.connect(self.save)
 
@@ -474,10 +474,10 @@ class SortingSelectWindow(QWidget):
         self.hide()
 
 
-class CommentsWindow(QWidget):
+class CommentsWindow(QWidget, app_ui.CommentsUi):
     def __init__(self, post_id):
         super().__init__()
-        uic.loadUi('comments_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 2
+        self.setupUi(self)
         self.setFixedSize(430, 470)
 
         self.post_id = post_id  # Save id of post we are submitting to
@@ -523,10 +523,10 @@ class CommentsWindow(QWidget):
         self.comment_creator.show()
 
 
-class CommentCreationWindow(QWidget):
+class CommentCreationWindow(QWidget, app_ui.SubmitCommentUi):
     def __init__(self, post_id):
         super().__init__()
-        uic.loadUi('submit_comment_ui.ui', self)  # Load in UI  TODO: Yep, this also needs to be changed for classes
+        self.setupUi(self)
         self.submit_btn.clicked.connect(self.submit)  # Connect button for submission
         self.setFixedSize(350, 530)
         self.post_id = post_id
@@ -547,10 +547,10 @@ class CommentCreationWindow(QWidget):
 
 # Class of windows for telling the user (or me) something.
 # Custom made alternative to QMessageBox because that widget is horrendous looking
-class MessageWindow(QDialog):
+class MessageWindow(QDialog, app_ui.MessageUi):
     def __init__(self, message, message_explain):
         super().__init__()
-        uic.loadUi('message_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 3
+        self.setupUi(self)
         self.ok_btn.clicked.connect(lambda: self.hide())  # "Ok" button that just closes window. For convenience.
 
         self.setFixedSize(400, 175)  # Set fixed size
@@ -560,10 +560,10 @@ class MessageWindow(QDialog):
         self.label_2.setText(message_explain)  # Smaller text, more info
 
 
-class SubredditSelectWindow(QWidget):
+class SubredditSelectWindow(QWidget, app_ui.SubredditSelectUi):
     def __init__(self, id_num):
         super().__init__()
-        uic.loadUi('subreddit_select_ui.ui', self)  # TODO: REPLACE WITH CLASSES DUMBASS
+        self.setupUi(self)
         self.setFixedSize(450, 630)
         self.id_num = id_num
 
@@ -626,10 +626,10 @@ class SubredditSelectWindow(QWidget):
         self.hide()
 
 
-class LoginWindow(QWidget):
+class LoginWindow(QWidget, app_ui.LoginUi):
     def __init__(self):
         super().__init__()
-        uic.loadUi('login_ui.ui', self)  # Load in UI  TODO: Replace this shit with classes 4
+        self.setupUi(self)
         self.setFixedSize(470, 350)  # Set size to perfect one.
 
         # Make links to registration on Reddit work
@@ -720,10 +720,10 @@ class LoginWindow(QWidget):
         self.hide()  # Hide this one because we're not gonna need it for rest of session
 
 
-class LoginWindowEdit(QWidget):
+class LoginWindowEdit(QWidget, app_ui.LoginEditUi):
     def __init__(self, id_num):
         super().__init__()
-        uic.loadUi('login_edit_ui.ui', self)  # Load ui TODO: replace with classes
+        self.setupUi(self)
 
         self.save_btn.clicked.connect(self.save)  # Connect Save Button
         self.delete_btn.clicked.connect(self.delete)  # Connect Delete Button
