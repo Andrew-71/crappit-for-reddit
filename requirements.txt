@@ -1,5 +1,4 @@
 PyQt5
 praw
 prawcore
-urllib.request
 pyperclip
